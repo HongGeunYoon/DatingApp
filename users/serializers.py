@@ -1,5 +1,3 @@
-# users/serializers.py
-
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import UserProfile, Like # UserProfile 및 Like 모델이 정의된 파일 임포트
@@ -9,7 +7,10 @@ from chat.models import ChatRoom
 class UserProfileSerializer(serializers.ModelSerializer):
     # 'user' 필드는 읽기 전용으로 설정
     user = serializers.ReadOnlyField(source='user.id')
-    profile_picture = serializers.ImageField(required=False, use_url=False)
+    
+    # UserProfile 모델의 profile_pic 필드를 참조합니다.
+    # UserProfileSerializer는 기존 프로필 수정에 사용되므로 required=False를 유지합니다.
+    profile_picture = serializers.ImageField(required=False, use_url=False) 
 
     class Meta:
         model = UserProfile
@@ -81,20 +82,31 @@ class LikeSerializer(serializers.ModelSerializer):
 class UserRegistrationSerializer(serializers.ModelSerializer):
     # 비밀번호 필드는 쓰기 전용으로 설정
     password = serializers.CharField(write_only=True)
+    
+    # ★ 수정: 프로필 사진 필드를 ImageField로 정의하고 필수(required=True)로 설정 ★
+    # UserProfile 모델이 아닌, User 모델의 필드로 Meta에 포함되어야 FormData로 받을 수 있습니다.
+    profile_pic = serializers.ImageField(write_only=True, required=True) 
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'password')
+        # 'profile_pic' 필드를 포함합니다.
+        fields = ('id', 'username', 'email', 'password', 'profile_pic')
         read_only_fields = ('id',) 
 
     def create(self, validated_data):
+        # 1. User 모델 데이터에서 분리해야 하는 필드 (password, profile_pic)를 추출합니다.
+        # profile_pic이 이제 필수(required=True)이므로, pop()을 안전하게 사용할 수 있습니다.
+        profile_pic_data = validated_data.pop('profile_pic') 
         password = validated_data.pop('password')
         
-        # Django의 기본 함수로 안전하게 사용자 생성
+        # 2. User 객체 생성 (validated_data에는 username, email만 남음)
         user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data.get('email', ''), 
-            password=password
+            password=password,
+            **validated_data # username, email이 전달됩니다.
         )
         
+        # 3. ★ 신규 로직: UserProfile 객체 생성 및 profile_pic 연결 ★
+        # UserProfile 모델의 필드 이름이 'profile_pic'이라고 가정하고 저장합니다.
+        UserProfile.objects.create(user=user, profile_pic=profile_pic_data)
+            
         return user
