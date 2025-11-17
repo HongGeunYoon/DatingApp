@@ -1,71 +1,46 @@
+// frontend/src/components/Register.js (Material-UI 적용)
+
 import React, { useState } from 'react';
 import axios from 'axios';
-import { Form, Button, Container, Card, Alert } from 'react-bootstrap';
+// 🔑 1. Material-UI 컴포넌트들을 가져옵니다.
+import { Container, Card, CardContent, Typography, TextField, Button, Alert, Box, Link } from '@mui/material';
 
-// 회원가입 컴포넌트 정의
-function Register({ onRegisterSuccess }) {
-    // 🔑 1. 상태 관리: 입력 필드 및 메시지 상태 저장
+// 🔑 onRegisterSuccess와 onBackToLogin 프롭을 받습니다.
+function Register({ onRegisterSuccess, onBackToLogin }) {
     const [formData, setFormData] = useState({
         username: '',
         email: '',
         password: '',
-        // password2: '' // 비밀번호 확인 필드는 필요에 따라 추가
     });
-    const [message, setMessage] = useState(''); // 성공/실패 메시지
-    const [error, setError] = useState('');     // 에러 메시지
+    const [message, setMessage] = useState('');
+    const [error, setError] = useState('');
 
-    // 🔑 2. 입력값 변경 처리 핸들러
     const handleChange = (e) => {
-        setFormData({
-            ...formData,
-            [e.target.name]: e.target.value
-        });
+        setFormData({ ...formData, [e.target.name]: e.target.value });
     };
 
-    // 🔑 3. 폼 제출 핸들러 (API 호출)
     const handleSubmit = async (e) => {
-        e.preventDefault(); // 기본 폼 제출 방지
+        e.preventDefault();
         setMessage('');
         setError('');
 
         try {
-            // 백엔드 회원가입 API 엔드포인트 호출
-            const response = await axios.post(
-                'http://127.0.0.1:8000/api/users/register/', 
-                formData,
-                {
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                }
-            );
-
-            // 회원가입 성공 처리
-            setMessage(`🎉 ${response.data.username}님, 회원가입이 성공적으로 완료되었습니다!`);
+            const response = await axios.post('http://127.0.0.1:8000/api/users/register/', formData);
+            setMessage(`🎉 ${response.data.username}님, 회원가입이 성공적으로 완료되었습니다! 잠시 후 로그인 페이지로 이동합니다.`);
             
-            // 성공 후 로그인 페이지로 리다이렉트 (추가 구현 필요)
-            if (onRegisterSuccess) {
-                onRegisterSuccess(); 
-            }
+            // 🔑 3초 후 자동으로 로그인 페이지로 이동
+            setTimeout(() => {
+                if (onRegisterSuccess) {
+                    onRegisterSuccess();
+                }
+            }, 3000);
 
         } catch (err) {
             console.error("회원가입 실패:", err.response?.data || err.message);
-            
-            // DRF에서 받은 에러 메시지 표시
-            if (err.response?.data) {
-                const errorData = err.response.data;
-                // DRF의 필드 에러를 문자열로 변환하여 표시
-                if (errorData.username) {
-                    setError(`사용자 이름 오류: ${errorData.username[0]}`);
-                } else if (errorData.email) {
-                    setError(`이메일 오류: ${errorData.email[0]}`);
-                } else if (errorData.password) {
-                    setError(`비밀번호 오류: ${errorData.password[0]}`);
-                } else if (errorData.detail) {
-                    setError(errorData.detail); // 기타 상세 오류
-                } else {
-                    setError("회원가입 중 알 수 없는 오류가 발생했습니다.");
-                }
+            const errorData = err.response?.data;
+            if (errorData) {
+                const errorMessages = Object.values(errorData).flat().join(' ');
+                setError(errorMessages || "회원가입 중 알 수 없는 오류가 발생했습니다.");
             } else {
                 setError("서버와 통신할 수 없습니다. 네트워크를 확인하세요.");
             }
@@ -73,61 +48,75 @@ function Register({ onRegisterSuccess }) {
     };
 
     return (
-        <Container className="d-flex justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
-            <Card style={{ width: '25rem', padding: '20px' }}>
-                <Card.Body>
-                    <h2 className="text-center mb-4">회원가입</h2>
-                    
-                    {/* 성공/실패 메시지 표시 */}
-                    {message && <Alert variant="success">{message}</Alert>}
-                    {error && <Alert variant="danger">{error}</Alert>}
-                    
-                    <Form onSubmit={handleSubmit}>
-                        {/* 사용자 ID (username) 필드 */}
-                        <Form.Group className="mb-3" controlId="formBasicUsername">
-                            <Form.Label>사용자 ID</Form.Label>
-                            <Form.Control 
-                                type="text" 
-                                placeholder="사용할 ID를 입력하세요" 
+        // 🔑 2. 화면 중앙 정렬을 위해 Container와 Box를 사용합니다.
+        <Container component="main" maxWidth="xs">
+            <Box sx={{ marginTop: 8, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <Card sx={{ width: '100%', padding: 2 }}>
+                    <CardContent>
+                        <Typography component="h1" variant="h5" align="center" gutterBottom>
+                            회원가입
+                        </Typography>
+                        
+                        {/* 성공 또는 에러 메시지를 Alert로 표시합니다. */}
+                        {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
+                        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                        
+                        {/* 🔑 3. 회원가입 폼을 Box와 TextField로 구성합니다. */}
+                        <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1 }}>
+                            <TextField
+                                margin="normal"
+                                required
+                                fullWidth
+                                id="username"
+                                label="사용자 ID"
                                 name="username"
                                 value={formData.username}
                                 onChange={handleChange}
-                                required
+                                autoFocus
                             />
-                        </Form.Group>
-
-                        {/* 이메일 (email) 필드 */}
-                        <Form.Group className="mb-3" controlId="formBasicEmail">
-                            <Form.Label>이메일</Form.Label>
-                            <Form.Control 
-                                type="email" 
-                                placeholder="이메일을 입력하세요" 
+                            <TextField
+                                margin="normal"
+                                required
+                                fullWidth
+                                id="email"
+                                label="이메일 주소"
                                 name="email"
+                                type="email"
                                 value={formData.email}
                                 onChange={handleChange}
-                                required
                             />
-                        </Form.Group>
-
-                        {/* 비밀번호 (password) 필드 */}
-                        <Form.Group className="mb-4" controlId="formBasicPassword">
-                            <Form.Label>비밀번호</Form.Label>
-                            <Form.Control 
-                                type="password" 
-                                placeholder="비밀번호를 입력하세요" 
+                            <TextField
+                                margin="normal"
+                                required
+                                fullWidth
                                 name="password"
+                                label="비밀번호"
+                                type="password"
+                                id="password"
                                 value={formData.password}
                                 onChange={handleChange}
-                                required
                             />
-                        </Form.Group>
-
-                        <Button variant="success" type="submit" className="w-100">
-                            가입하기
-                        </Button>
-                    </Form>
-                </Card.Body>
-            </Card>
+                            {/* 🔑 4. 가입하기 버튼 스타일을 지정합니다. */}
+                            <Button
+                                type="submit"
+                                fullWidth
+                                variant="contained"
+                                color="secondary"
+                                sx={{ mt: 3, mb: 2 }}
+                            >
+                                가입하기
+                            </Button>
+                            
+                            {/* 🔑 5. 로그인 페이지로 돌아가는 링크를 추가합니다. */}
+                            <Box textAlign="center">
+                                <Link href="#" variant="body2" onClick={(e) => { e.preventDefault(); onBackToLogin(); }}>
+                                    이미 계정이 있으신가요? 로그인
+                                </Link>
+                            </Box>
+                        </Box>
+                    </CardContent>
+                </Card>
+            </Box>
         </Container>
     );
 }

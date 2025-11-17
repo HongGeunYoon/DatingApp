@@ -1,28 +1,24 @@
-// Login.js (회원가입 링크 추가 및 Bootstrap 적용)
+// frontend/src/components/Login.js (Material-UI 적용)
 
 import React, { useState } from 'react';
 import axios from 'axios';
-import { Container, Card, Form, Button, Alert } from 'react-bootstrap'; // 🔑 Bootstrap 컴포넌트 임포트
+// 🔑 1. Material-UI 컴포넌트들을 가져옵니다.
+import { Container, Card, CardContent, Typography, TextField, Button, Alert, Box, Link } from '@mui/material';
 
-// 🔑 onRegisterClick 프롭을 받도록 정의합니다.
+// 🔑 onRegisterClick 프롭을 받아 회원가입 화면으로 전환할 수 있도록 합니다.
 function Login({ onLoginSuccess, onRegisterClick }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(null); // 에러 메시지 상태 추가
+  const [error, setError] = useState(null); // 에러 메시지 상태
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError(null); // 로그인 시도 시 에러 초기화
+    setError(null); // 로그인 시도 전 에러 메시지 초기화
 
     try {
       const url = 'http://127.0.0.1:8000/api/token/';
       const { data } = await axios.post(url, { username, password });
-      onLoginSuccess(data.access);
-
-      // Access Token을 App.js로 전달하고 로컬 저장소에 저장합니다.
-      // onLoginSuccess(response.data.access); 
-      // // alert("로그인 성공!"); (Alert 대신 App.js에서 화면 전환으로 성공 표시)
-
+      onLoginSuccess(data.access); // 로그인 성공 시 토큰 전달
     } catch (error) {
       setError("로그인 실패: ID 또는 비밀번호를 확인해주세요.");
       console.error("Login failed:", error);
@@ -30,55 +26,72 @@ function Login({ onLoginSuccess, onRegisterClick }) {
   };
 
   return (
-  <Container className="d-flex justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
-     <Card style={{ width: '22rem', padding: '20px' }}>
-      <Card.Body>
-        <h2 className="text-center mb-4">로그인</h2>
+    // 🔑 2. 화면 중앙 정렬을 위해 Container와 Box를 사용합니다.
+    <Container component="main" maxWidth="xs">
+      <Box
+        sx={{
+          marginTop: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
+        {/* 🔑 3. Card와 CardContent로 로그인 폼 영역을 감쌉니다. */}
+        <Card sx={{ width: '100%', padding: 2 }}>
+          <CardContent>
+            <Typography component="h1" variant="h5" align="center" gutterBottom>
+              로그인
+            </Typography>
 
-          {/* 🔑 에러 메시지 표시 */}
-          {error && <Alert variant="danger">{error}</Alert>}
+            {/* 에러 메시지가 있을 경우 Alert 컴포넌트로 표시합니다. */}
+            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-          <Form onSubmit={handleLogin}>
-            <Form.Group className="mb-3" controlId="formBasicUsername">
-               <Form.Label>사용자 ID</Form.Label>
-                <Form.Control 
-                type="text" 
-                value={username} 
-                onChange={e => setUsername(e.target.value)} 
-                placeholder="사용자 ID 입력" 
-                required 
+            {/* 🔑 4. Form 대신 Box를 사용하고, 각 입력 필드는 TextField로 만듭니다. */}
+            <Box component="form" onSubmit={handleLogin} noValidate sx={{ mt: 1 }}>
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                id="username"
+                label="사용자 ID"
+                name="username"
+                autoComplete="username"
+                autoFocus
+                value={username}
+                onChange={e => setUsername(e.target.value)}
               />
-               </Form.Group>
-               
-               <Form.Group className="mb-4" controlId="formBasicPassword">
-                <Form.Label>비밀번호</Form.Label>
-                <Form.Control 
-                type="password" 
-                value={password} 
-                onChange={e => setPassword(e.target.value)} 
-                placeholder="비밀번호 입력" 
-                required 
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                name="password"
+                label="비밀번호"
+                type="password"
+                id="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
               />
-               </Form.Group>
-               
-                <Button variant="primary" type="submit" className="w-100 mb-3">
-                   로그인
-             </Button>
-           </Form>
-
-          {/* 🔑 회원가입 버튼/링크 추가 */}
-          <div className="text-center mt-3">
-            계정이 없으신가요? 
-            <button 
-              type="button" 
-              onClick={onRegisterClick}
-              style={{ marginLeft: '5px', fontWeight: 'bold',cursor: 'pointer',backgroundColor: 'transparent',border: 'none',padding: 0,color: 'blue',textDecoration: 'underline' }}
-            >
-              회원가입
-            </button>
-          </div>
-        </Card.Body>
-      </Card>
+              {/* 🔑 5. 'contained' variant를 가진 Button으로 로그인 버튼을 만듭니다. */}
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                sx={{ mt: 3, mb: 2 }}
+              >
+                로그인
+              </Button>
+              
+              {/* 🔑 6. 회원가입 링크를 클릭 가능한 Link 컴포넌트로 만듭니다. */}
+              <Box textAlign="center">
+                <Link href="#" variant="body2" onClick={(e) => { e.preventDefault(); onRegisterClick(); }}>
+                  계정이 없으신가요? 회원가입
+                </Link>
+              </Box>
+            </Box>
+          </CardContent>
+        </Card>
+      </Box>
     </Container>
   );
 }
