@@ -9,7 +9,7 @@ from chat.models import ChatRoom
 class UserProfileSerializer(serializers.ModelSerializer):
     # 'user' 필드는 읽기 전용으로 설정
     user = serializers.ReadOnlyField(source='user.id')
-    profile_picture = serializers.ImageField(required=False, use_url=False)
+    profile_picture = serializers.ImageField(required=False, use_url=True)
 
     class Meta:
         model = UserProfile
