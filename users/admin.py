@@ -1,51 +1,52 @@
 from django.contrib import admin
-from django.utils.html import format_html
-# CustomUser 모델을 함께 가져옵니다. (이전 단계에서 정의한 사용자 모델)
-from .models import CustomUser, UserProfile, Like 
-from django.contrib.auth.admin import UserAdmin 
+from django.contrib.auth.models import User
+from .models import UserProfile, Like
 
+# 1. UserProfile을 User 모델 상세 페이지에 인라인으로 표시하기 위한 클래스
+class UserProfileInline(admin.StackedInline):
+    model = UserProfile
+    can_delete = False
+    verbose_name_plural = 'Profile'
+    fk_name = 'user'
+    # 관리자 페이지에서 UserProfile의 필드들을 지정합니다.
+    fields = ('nickname', 'age', 'gender', 'bio', 'interest', 'profile_image') 
 
-# 1. CustomUser 모델 등록 (기본 UserAdmin 사용)
-# CustomUser 모델이 기본 사용자 모델로 사용되고 있다면, admin에 등록해줘야 합니다.
-@admin.register(CustomUser)
-class CustomUserAdmin(UserAdmin):
+# 2. 기본 User 모델의 관리자 페이지를 오버라이드 (프로필 인라인 포함)
+class CustomUserAdmin(admin.ModelAdmin):
+    # User 모델의 기본 필드들을 정의합니다.
+    list_display = ('username', 'email', 'first_name', 'last_name', 'is_staff', 'is_active')
+    inlines = (UserProfileInline,) # User 상세 페이지에 Profile 필드가 표시됩니다.
+
+# --- 모델 등록 시작 ---
+
+# A. User 모델 등록: 기존 등록 해제 후 CustomAdmin으로 다시 등록
+try:
+    admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    # 이미 등록되어 있지 않은 경우 무시합니다.
     pass
-    
+admin.site.register(User, CustomUserAdmin)
 
-# 2. UserProfile 모델 등록 (썸네일 기능 포함)
+
+# B. UserProfile 모델 등록: Admin 메뉴에 별도 항목으로 표시합니다. (★ 이 코드가 누락되었었습니다!)
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    # 'profile_picture' 필드가 아닌 'profile_thumbnail' 커스텀 메소드를 사용합니다.
-    list_display = ('user', 'nickname', 'age', 'gender', 'profile_thumbnail') 
-    
-    search_fields = ('nickname', 'user__username')
-    list_filter = ('gender',)
-    
-    # ⭐️ 커스텀 메소드: 프로필 사진 썸네일과 경로를 표시합니다.
-    def profile_thumbnail(self, obj):
-        # obj.profile_picture가 None이 아닐 때만 처리
-        if obj.profile_picture and obj.profile_picture.name:
-            # 파일 이름(경로)과 썸네일을 함께 표시합니다.
-            return format_html(
-                # 경로 텍스트 표시
-                '<a href="{url}" target="_blank" style="display: block; margin-bottom: 5px; color: #106fcc;">{path}</a>'
-                # 썸네일 이미지 표시
-                '<img src="{url}" style="max-width: 60px; height: auto; border-radius: 4px; border: 1px solid #eee;" />',
-                url=obj.profile_picture.url,
-                path=obj.profile_picture.name
-            )
-        return format_html('<span style="color: #999;">- 사진 없음 -</span>')
+    # 목록 페이지에 표시할 필드
+    list_display = ('user', 'nickname', 'age', 'gender', 'created_at')
+    # 필터링 및 검색 기능 추가
+    list_filter = ('gender', 'created_at')
+    search_fields = ('user__username', 'nickname', 'bio', 'interest')
+    # ForeignKey 필드인 'user'는 ID로 빠르게 검색하도록 설정
+    raw_id_fields = ('user',) 
 
-    profile_thumbnail.short_description = '프로필 사진' # 목록 컬럼 이름
-    
 
-# 3. Like 모델 등록 (필드 이름 수정)
+# C. Like 모델 등록
 @admin.register(Like)
 class LikeAdmin(admin.ModelAdmin):
-    # ⭐️ 핵심 수정: 'receiver' 대신 모델 필드 이름인 'liked'를 사용합니다.
-    list_display = ('liker', 'liked', 'created_at')
+    # 목록 페이지에 표시할 필드
+    list_display = ('liker', 'receiver', 'created_at')
+    # 필터링 및 검색 기능 추가
     list_filter = ('created_at',)
-    search_fields = ('liker__username', 'liked__username')
-
-    # 읽기 전용 필드 추가 (필요한 경우)
-    readonly_fields = ('created_at',)
+    search_fields = ('liker__username', 'receiver__username')
+    # ForeignKey 필드인 'liker', 'receiver'는 ID로 빠르게 검색하도록 설정
+    raw_id_fields = ('liker', 'receiver')

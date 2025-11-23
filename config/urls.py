@@ -1,18 +1,6 @@
 """
 URL configuration for config project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+...
 """
 from django.contrib import admin
 from django.urls import path, include
@@ -30,9 +18,13 @@ from chat.views import ChatRoomViewSet
 
 # 📌 2. 라우터 설정
 router = routers.DefaultRouter()
-router.register(r'users/userprofile', UserProfileViewSet)
-router.register(r'users/like', LikeViewSet, basename='like')
-router.register(r'users/register', RegistrationViewSet, basename='register')
+# 🚨 수정: 'users/' 접두사를 제거하여 '/api/userprofile/'로 접근 가능하게 합니다.
+router.register(r'userprofile', UserProfileViewSet)
+# 🚨 수정: 'users/' 접두사를 제거하여 '/api/like/'로 접근 가능하게 합니다.
+router.register(r'like', LikeViewSet, basename='like')
+# 🚨 핵심 수정: 'users/' 접두사를 제거하여 '/api/register/'로 접근 가능하게 합니다.
+router.register(r'register', RegistrationViewSet, basename='register')
+# 'chat'은 API 내에서 그룹화하는 것이 적절하므로 유지
 router.register(r'chat/rooms', ChatRoomViewSet, basename='chatroom') 
 
 
