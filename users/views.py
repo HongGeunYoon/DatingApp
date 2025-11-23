@@ -57,7 +57,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(profiles, many=True)
         return Response(serializer.data)
 
-    # 🔑 3. [수정] 좋아요 통계 엔드포인트 (GET /api/users/userprofile/stats/)
+    # 🔑 3. 좋아요 통계 엔드포인트 (GET /api/users/userprofile/stats/)
     @action(detail=False, methods=['get'])
     def stats(self, request):
         """사용자의 좋아요/받은 좋아요 통계를 제공합니다."""
@@ -65,14 +65,14 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         
         # 1. 내가 좋아요를 보낸 사람 목록 (LikesSent)
         sent_likes = Like.objects.filter(liker=user)
-        # FIX: like.receiver -> like.liked 로 변경
+        # 좋아요 받은 사람(like.liked)의 UserProfile을 찾습니다.
         likes_sent_profiles = [like.liked.userprofile for like in sent_likes if hasattr(like.liked, 'userprofile')]
         likes_sent_data = UserProfileSerializer(likes_sent_profiles, many=True).data
 
         # 2. 나에게 좋아요를 보낸 사람 목록 (LikesReceived)
-        # FIX: filter(receiver=user) -> filter(liked=user) 로 변경
+        # 나(user)를 liked로 필터링합니다.
         received_likes = Like.objects.filter(liked=user)
-        # Like 객체에서 liker의 UserProfile을 찾습니다.
+        # 좋아요 보낸 사람(like.liker)의 UserProfile을 찾습니다.
         likes_received_profiles = [like.liker.userprofile for like in received_likes if hasattr(like.liker, 'userprofile')]
         
         likes_received_data = UserProfileSerializer(likes_received_profiles, many=True).data
@@ -92,7 +92,7 @@ class LikeViewSet(viewsets.GenericViewSet):
     # 📌 1. 받은 좋아요 목록을 조회하는 커스텀 액션 추가 (GET /api/users/like/received_likes/)
     @action(detail=False, methods=['get'])
     def received_likes(self, request):
-        # FIX: 현재 로그인된 사용자를 liked(좋아요 받은 사람)로 하는 Like 객체들을 필터링
+        # 현재 로그인된 사용자를 liked(좋아요 받은 사람)로 하는 Like 객체들을 필터링
         received_likes = self.get_queryset().filter(liked=request.user)
         
         # 받은 좋아요 리스트를 시리얼라이즈합니다.
@@ -102,45 +102,37 @@ class LikeViewSet(viewsets.GenericViewSet):
 
     # POST /api/users/like/ (좋아요 생성 및 매칭 확인)
     def create(self, request):
-        sender = request.user 
         
+        # 1. 시리얼라이저를 사용하여 유효성 검사 및 데이터 추출
+        # 이 시점에서 클라이언트 요청은 {'liked_user_id': 123} 형태여야 합니다.
         serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         
-        # FIX: 'receiver' -> 'liked'로 변경
-        # 'liked' 객체 (좋아요를 받은 사용자) 추출
-        liked_obj = serializer.validated_data['liked']
-        liked_id = liked_obj.id
+        # 시리얼라이저의 validate 함수에서 이미 'liker'와 'liked' User 객체가 추가됨
+        liker = serializer.validated_data['liker']
+        liked_user = serializer.validated_data['liked']
         
-        # 🚨 중복 좋아요 방지: 이미 좋아요를 보냈는지 확인
-        # FIX: receiver_id -> liked_id 로 변경
-        if Like.objects.filter(liker=sender, liked_id=liked_id).exists(): 
-            return Response(
-                {"detail": "이미 상대방에게 좋아요를 보냈습니다."}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # 2. 좋아요 객체 생성 및 저장 (LikeSerializer의 create 메서드 실행)
+        # create 메서드에서 중복 확인 및 매칭 로직(ChatRoom 생성)을 처리합니다.
+        like = serializer.save(liker=liker, liked=liked_user) 
         
-        # 1. 좋아요 객체 생성 및 저장
-        like = serializer.save(liker=sender) 
-        
-        # 📌 2. 매칭 로직: 상대방도 나에게 좋아요를 보냈는지 확인
-        # 상대방(liked_id)이 나(sender)에게 좋아요(liked=sender)를 보냈는지 확인
-        # FIX: receiver=sender -> liked=sender 로 변경
-        is_matched = Like.objects.filter(liker_id=liked_id, liked=sender).exists()
+        # 3. 매칭 여부 최종 확인
+        # 상대방(liked_user)이 나(liker)에게 좋아요를 보냈는지 확인
+        is_matched = Like.objects.filter(liker=liked_user, liked=liker).exists()
 
         if is_matched:
             # 매칭 성공 시, 매칭되었다는 응답 반환
             return Response({
                 'detail': "🎉 매칭 성공! 축하합니다!", 
                 'is_matched': True,
-                'liked_id': liked_id # FIX: receiver_id -> liked_id 로 변경
+                'liked_user_id': liked_user.id
             }, status=status.HTTP_201_CREATED)
         
         # 매칭 실패 시, 일반 좋아요 성공 응답 반환
         return Response({
             'detail': "좋아요 성공!", 
             'is_matched': False,
-            'liked_id': liked_id # FIX: receiver_id -> liked_id 로 변경
+            'liked_user_id': liked_user.id
         }, status=status.HTTP_201_CREATED)
 
 # 📌 추가: User Registration ViewSet: 회원가입 처리

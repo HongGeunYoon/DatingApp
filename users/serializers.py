@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.db import transaction
-from rest_framework.exceptions import ValidationError # ValidationError 임포트 추가
+from rest_framework.exceptions import ValidationError 
 from .models import UserProfile, Like
 from chat.models import ChatRoom 
 
@@ -19,8 +19,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
         """현재 요청 사용자(liker)와 이 프로필의 주인(receiver)이 상호 좋아요 상태인지 확인합니다."""
         request = self.context.get('request')
         if request and request.user.is_authenticated and request.user.id != obj.user_id:
-            i_liked = Like.objects.filter(liker=request.user, receiver=obj.user).exists()
-            they_liked_me = Like.objects.filter(liker=obj.user, receiver=request.user).exists()
+            # Note: Like 모델의 receiver 필드가 'liked'로 바뀌었을 경우를 가정하고 수정함
+            i_liked = Like.objects.filter(liker=request.user, liked=obj.user).exists()
+            they_liked_me = Like.objects.filter(liker=obj.user, liked=request.user).exists()
             return i_liked and they_liked_me
         return False
     
@@ -46,59 +47,74 @@ class UserProfileCreateUpdateSerializer(serializers.ModelSerializer):
 # ----------------- 2. Like Serializer (좋아요 생성/조회 - 매칭 로직 포함) -----------------
 class LikeSerializer(serializers.ModelSerializer):
     liker = serializers.ReadOnlyField(source='liker.id')
-    receiver = serializers.IntegerField() 
+    # 🚨 수정: 필드 이름을 liked_user_id로 변경하고, 클라이언트가 이 필드(ID)를 보내도록 기대합니다.
+    liked_user_id = serializers.IntegerField(write_only=True) 
 
     class Meta:
         model = Like
-        fields = ['id', 'liker', 'receiver', 'created_at']
+        # Note: 실제 모델 필드는 'liker'와 'liked'로 가정하고 fields를 수정합니다.
+        fields = ['id', 'liker', 'liked_user_id', 'created_at'] 
         read_only_fields = ['created_at']
 
     def validate(self, data):
         liker = self.context['request'].user
-        receiver_id = data.get('receiver')
+        # 🚨 수정: 'liked_user_id'를 가져옵니다.
+        liked_user_id = data.get('liked_user_id') 
+        
+        if not liked_user_id:
+             raise serializers.ValidationError({"liked_user_id": "좋아요를 받을 사용자의 ID가 필요합니다."})
         
         try:
-            receiver = User.objects.get(id=receiver_id)
+            # 🚨 수정: 좋아요를 받는 사용자 객체를 가져옵니다.
+            liked_user = User.objects.get(id=liked_user_id)
         except User.DoesNotExist:
-            raise serializers.ValidationError({"receiver": "존재하지 않는 사용자 ID입니다."})
+            raise serializers.ValidationError({"liked_user_id": "존재하지 않는 사용자 ID입니다."})
 
-        if liker == receiver:
+        if liker == liked_user:
             raise serializers.ValidationError("자기 자신에게 좋아요를 할 수 없습니다.")
 
-        if Like.objects.filter(liker=liker, receiver=receiver).exists():
+        # 🚨 수정: 좋아요 중복 확인 (liker와 liked_user 객체를 사용)
+        if Like.objects.filter(liker=liker, liked=liked_user).exists():
             raise serializers.ValidationError("이미 좋아요를 누르셨습니다.")
 
-        data['receiver'] = receiver 
+        # 🚨 추가: 뷰의 perform_create에서 사용될 수 있도록 User 객체를 data에 추가합니다.
+        data['liked'] = liked_user 
         data['liker'] = liker 
+        # 🚨 삭제: 더 이상 validated_data에 'liked_user_id'는 필요하지 않으므로 삭제
+        del data['liked_user_id']
         return data
     
     def create(self, validated_data):
+        # Note: Like 모델에 liker와 liked 필드가 있다고 가정하고 로직을 수정합니다.
+        
         # 1. 좋아요 객체 생성
         like = Like.objects.create(
             liker=validated_data['liker'], 
-            receiver=validated_data['receiver']
+            liked=validated_data['liked'] # 🚨 수정: receiver -> liked
         )
         
         liker = validated_data['liker']
-        receiver = validated_data['receiver']
+        liked_user = validated_data['liked'] # 🚨 수정: receiver -> liked_user
         
-        # 2. 매칭 확인: 상대방이 나에게 좋아요를 눌렀는지 확인
-        is_match = Like.objects.filter(liker=receiver, receiver=liker).exists()
+        # 2. 매칭 확인: 상대방(liked_user)이 나(liker)에게 좋아요를 눌렀는지 확인
+        is_match = Like.objects.filter(liker=liked_user, liked=liker).exists()
         
         if is_match:
-            # 3. 매칭 성사! -> ChatRoom 생성 로직 실행
-            user_a, user_b = sorted([liker, receiver], key=lambda u: u.id)
-            
-            if not ChatRoom.objects.filter(user1=user_a, user2=user_b).exists():
-                ChatRoom.objects.create(
-                    user1=user_a,
-                    user2=user_b,
-                    name=f'chat_{user_a.id}_{user_b.id}' 
-                )
-                print(f"매칭 성사! 새로운 채팅방이 생성되었습니다: chat_{user_a.id}_{user_b.id}")
-            else:
-                print("채팅방이 이미 존재합니다.")
+            # 3. 매칭 성사! -> ChatRoom 생성 로직 실행 (안전하게 트랜잭션 내부에서 실행)
+            with transaction.atomic():
+                user_a, user_b = sorted([liker, liked_user], key=lambda u: u.id)
                 
+                # 중복 채팅방 생성 방지
+                if not ChatRoom.objects.filter(user1=user_a, user2=user_b).exists():
+                    ChatRoom.objects.create(
+                        user1=user_a,
+                        user2=user_b,
+                        name=f'chat_{user_a.id}_{user_b.id}' 
+                    )
+                    print(f"매칭 성사! 새로운 채팅방이 생성되었습니다: chat_{user_a.id}_{user_b.id}")
+                else:
+                    print("채팅방이 이미 존재합니다.")
+                    
         return like
     
 # ----------------- 3. User Registration Serializer (회원가입 - 원자적 트랜잭션 적용) -----------------
