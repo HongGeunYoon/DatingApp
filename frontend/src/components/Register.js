@@ -1,122 +1,204 @@
-// frontend/src/components/Register.js (Material-UI 적용)
-
 import React, { useState } from 'react';
 import axios from 'axios';
-// 🔑 1. Material-UI 컴포넌트들을 가져옵니다.
-import { Container, Card, CardContent, Typography, TextField, Button, Alert, Box, Link } from '@mui/material';
+import { Container, Card, Form, Button, Alert } from 'react-bootstrap';
 
-// 🔑 onRegisterSuccess와 onBackToLogin 프롭을 받습니다.
-function Register({ onRegisterSuccess, onBackToLogin }) {
+// onLoginAfterRegister: 회원가입 성공 후 자동으로 로그인 처리 및 화면 전환을 위한 콜백
+// onBackToLogin: '로그인으로 돌아가기' 버튼 클릭 시 화면 전환을 위한 콜백
+function Register({ onLoginAfterRegister, onBackToLogin }) {
     const [formData, setFormData] = useState({
         username: '',
         email: '',
         password: '',
+        password2: '',
+        // 🔑 UserProfile 필드 추가
+        nickname: '',
+        age: '',
+        gender: 'male', // 기본값
     });
-    const [message, setMessage] = useState('');
-    const [error, setError] = useState('');
+    const [error, setError] = useState(null);
+    const [loading, setLoading] = useState(false);
 
     const handleChange = (e) => {
-        setFormData({ ...formData, [e.target.name]: e.target.value });
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSubmit = async (e) => {
+    const handleRegister = async (e) => {
         e.preventDefault();
-        setMessage('');
-        setError('');
+        setError(null);
+        setLoading(true);
+
+        // 🚨 나이와 성별은 백엔드에서 필요하므로 반드시 확인합니다.
+        if (!formData.age || !formData.gender) {
+            setError("나이와 성별을 모두 입력해주세요.");
+            setLoading(false);
+            return;
+        }
 
         try {
-            const response = await axios.post('http://127.0.0.1:8000/api/users/register/', formData);
-            setMessage(`🎉 ${response.data.username}님, 회원가입이 성공적으로 완료되었습니다! 잠시 후 로그인 페이지로 이동합니다.`);
+            const url = 'http://127.0.0.1:8000/api/users/register/';
             
-            // 🔑 3초 후 자동으로 로그인 페이지로 이동
-            setTimeout(() => {
-                if (onRegisterSuccess) {
-                    onRegisterSuccess();
-                }
-            }, 3000);
+            // 🔑 UserProfile 데이터를 포함하여 전송
+            const dataToSend = {
+                username: formData.username,
+                email: formData.email,
+                password: formData.password,
+                password2: formData.password2,
+                nickname: formData.nickname,
+                // age는 숫자 타입이어야 합니다.
+                age: parseInt(formData.age), 
+                gender: formData.gender,
+            };
 
-        } catch (err) {
-            console.error("회원가입 실패:", err.response?.data || err.message);
-            const errorData = err.response?.data;
-            if (errorData) {
-                const errorMessages = Object.values(errorData).flat().join(' ');
-                setError(errorMessages || "회원가입 중 알 수 없는 오류가 발생했습니다.");
-            } else {
-                setError("서버와 통신할 수 없습니다. 네트워크를 확인하세요.");
+            const response = await axios.post(url, dataToSend);
+
+            if (response.status === 201) {
+                // 회원가입 성공 후 바로 로그인 처리 (선택 사항: 토큰 요청)
+                alert("회원가입에 성공했습니다! 로그인 화면으로 돌아갑니다.");
+                onBackToLogin(); 
+                
+                // 만약 바로 자동 로그인을 원한다면, 아래 로직을 사용합니다.
+                /*
+                // 토큰 요청 엔드포인트가 필요합니다. (API 구조에 따라 다름)
+                const loginUrl = 'http://127.0.0.1:8000/api/token/';
+                const loginResponse = await axios.post(loginUrl, { 
+                    username: formData.username, 
+                    password: formData.password 
+                });
+                onLoginAfterRegister(loginResponse.data.access);
+                */
             }
+        } catch (error) {
+            console.error("Registration failed:", error.response?.data || error.message);
+            const errorMsg = error.response?.data 
+                ? Object.values(error.response.data).flat().join(' ')
+                : '회원가입 중 알 수 없는 오류가 발생했습니다.';
+            setError(`회원가입 실패: ${errorMsg}`);
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        // 🔑 2. 화면 중앙 정렬을 위해 Container와 Box를 사용합니다.
-        <Container component="main" maxWidth="xs">
-            <Box sx={{ marginTop: 8, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <Card sx={{ width: '100%', padding: 2 }}>
-                    <CardContent>
-                        <Typography component="h1" variant="h5" align="center" gutterBottom>
-                            회원가입
-                        </Typography>
-                        
-                        {/* 성공 또는 에러 메시지를 Alert로 표시합니다. */}
-                        {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
-                        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-                        
-                        {/* 🔑 3. 회원가입 폼을 Box와 TextField로 구성합니다. */}
-                        <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1 }}>
-                            <TextField
-                                margin="normal"
-                                required
-                                fullWidth
-                                id="username"
-                                label="사용자 ID"
+        <Container className="d-flex justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
+            <Card style={{ width: '22rem', padding: '20px' }}>
+                <Card.Body>
+                    <h2 className="text-center mb-4">회원가입</h2>
+
+                    {error && <Alert variant="danger">{error}</Alert>}
+
+                    <Form onSubmit={handleRegister}>
+                        {/* 사용자 ID */}
+                        <Form.Group className="mb-3" controlId="regUsername">
+                            <Form.Label>사용자 ID</Form.Label>
+                            <Form.Control 
+                                type="text" 
                                 name="username"
-                                value={formData.username}
-                                onChange={handleChange}
-                                autoFocus
+                                value={formData.username} 
+                                onChange={handleChange} 
+                                placeholder="사용자 ID" 
+                                required 
                             />
-                            <TextField
-                                margin="normal"
-                                required
-                                fullWidth
-                                id="email"
-                                label="이메일 주소"
+                        </Form.Group>
+                        
+                        {/* 이메일 */}
+                        <Form.Group className="mb-3" controlId="regEmail">
+                            <Form.Label>이메일</Form.Label>
+                            <Form.Control 
+                                type="email" 
                                 name="email"
-                                type="email"
-                                value={formData.email}
-                                onChange={handleChange}
+                                value={formData.email} 
+                                onChange={handleChange} 
+                                placeholder="이메일" 
+                                required 
                             />
-                            <TextField
-                                margin="normal"
-                                required
-                                fullWidth
+                        </Form.Group>
+
+                        {/* 비밀번호 */}
+                        <Form.Group className="mb-3" controlId="regPassword">
+                            <Form.Label>비밀번호</Form.Label>
+                            <Form.Control 
+                                type="password" 
                                 name="password"
-                                label="비밀번호"
-                                type="password"
-                                id="password"
-                                value={formData.password}
-                                onChange={handleChange}
+                                value={formData.password} 
+                                onChange={handleChange} 
+                                placeholder="비밀번호" 
+                                required 
                             />
-                            {/* 🔑 4. 가입하기 버튼 스타일을 지정합니다. */}
-                            <Button
-                                type="submit"
-                                fullWidth
-                                variant="contained"
-                                color="secondary"
-                                sx={{ mt: 3, mb: 2 }}
+                        </Form.Group>
+                        
+                        {/* 비밀번호 확인 */}
+                        <Form.Group className="mb-3" controlId="regPassword2">
+                            <Form.Label>비밀번호 확인</Form.Label>
+                            <Form.Control 
+                                type="password" 
+                                name="password2"
+                                value={formData.password2} 
+                                onChange={handleChange} 
+                                placeholder="비밀번호 확인" 
+                                required 
+                            />
+                        </Form.Group>
+                        
+                        {/* 닉네임 (UserProfile) */}
+                        <Form.Group className="mb-3" controlId="regNickname">
+                            <Form.Label>닉네임</Form.Label>
+                            <Form.Control 
+                                type="text" 
+                                name="nickname"
+                                value={formData.nickname} 
+                                onChange={handleChange} 
+                                placeholder="닉네임" 
+                            />
+                        </Form.Group>
+                        
+                        {/* 나이 (UserProfile) */}
+                        <Form.Group className="mb-3" controlId="regAge">
+                            <Form.Label>나이 (필수)</Form.Label>
+                            <Form.Control 
+                                type="number" 
+                                name="age"
+                                value={formData.age} 
+                                onChange={handleChange} 
+                                placeholder="나이" 
+                                min="18"
+                                required 
+                            />
+                        </Form.Group>
+                        
+                        {/* 성별 (UserProfile) */}
+                        <Form.Group className="mb-4" controlId="regGender">
+                            <Form.Label>성별 (필수)</Form.Label>
+                            <Form.Control
+                                as="select"
+                                name="gender"
+                                value={formData.gender}
+                                onChange={handleChange}
+                                required
                             >
-                                가입하기
-                            </Button>
-                            
-                            {/* 🔑 5. 로그인 페이지로 돌아가는 링크를 추가합니다. */}
-                            <Box textAlign="center">
-                                <Link href="#" variant="body2" onClick={(e) => { e.preventDefault(); onBackToLogin(); }}>
-                                    이미 계정이 있으신가요? 로그인
-                                </Link>
-                            </Box>
-                        </Box>
-                    </CardContent>
-                </Card>
-            </Box>
+                                <option value="male">남성</option>
+                                <option value="female">여성</option>
+                                <option value="other">기타</option>
+                            </Form.Control>
+                        </Form.Group>
+
+                        <Button variant="success" type="submit" className="w-100 mb-3" disabled={loading}>
+                            {loading ? '등록 중...' : '회원가입'}
+                        </Button>
+                    </Form>
+
+                    <div className="text-center mt-3">
+                        이미 계정이 있으신가요? 
+                        <Button 
+                            variant="link" 
+                            onClick={onBackToLogin}
+                            className="p-0 ms-1 fw-bold text-decoration-underline"
+                        >
+                            로그인
+                        </Button>
+                    </div>
+                </Card.Body>
+            </Card>
         </Container>
     );
 }

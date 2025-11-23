@@ -1,31 +1,58 @@
-# users/serializers.py
-
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import UserProfile, Like # UserProfile 및 Like 모델이 정의된 파일 임포트
-from chat.models import ChatRoom
+from django.db import transaction
+from rest_framework.exceptions import ValidationError # ValidationError 임포트 추가
+from .models import UserProfile, Like
+from chat.models import ChatRoom 
 
-# 1. UserProfile Serializer
+# ----------------- 1. UserProfile Serializer (조회용) -----------------
 class UserProfileSerializer(serializers.ModelSerializer):
-    # 'user' 필드는 읽기 전용으로 설정
-    user = serializers.ReadOnlyField(source='user.id')
-    profile_picture = serializers.ImageField(required=False, use_url=False)
+    username = serializers.CharField(source='user.username', read_only=True)
+    is_matched = serializers.SerializerMethodField()
+    profile_picture = serializers.ImageField(read_only=True) 
 
     class Meta:
         model = UserProfile
-        fields = ['user', 'nickname', 'age', 'gender', 'bio', 'interests','profile_picture']
+        fields = ['id', 'username', 'nickname', 'age', 'gender', 'bio', 'interests', 'profile_picture', 'is_matched']
 
-# 2. Like Serializer (좋아요 생성/조회)
+    def get_is_matched(self, obj):
+        """현재 요청 사용자(liker)와 이 프로필의 주인(receiver)이 상호 좋아요 상태인지 확인합니다."""
+        request = self.context.get('request')
+        if request and request.user.is_authenticated and request.user.id != obj.user_id:
+            i_liked = Like.objects.filter(liker=request.user, receiver=obj.user).exists()
+            they_liked_me = Like.objects.filter(liker=obj.user, receiver=request.user).exists()
+            return i_liked and they_liked_me
+        return False
+    
+# ----------------- 1-B. UserProfile Create/Update Serializer (생성/수정 전용) -----------------
+class UserProfileCreateUpdateSerializer(serializers.ModelSerializer):
+    # 🚨 수정: 모든 필드에 required=False를 명시하여 PATCH 요청에 완벽하게 대응합니다.
+    nickname = serializers.CharField(required=False, allow_blank=True, max_length=30)
+    age = serializers.IntegerField(required=False, allow_null=True)
+    gender = serializers.CharField(required=False, allow_blank=True, max_length=10)
+    bio = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    interests = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    profile_picture = serializers.ImageField(required=False)
+    
+    def validate_age(self, value):
+        if value is not None and value < 0:
+            raise ValidationError("나이는 0보다 작을 수 없습니다.")
+        return value
+        
+    class Meta:
+        model = UserProfile
+        fields = ['nickname', 'age', 'gender', 'bio', 'interests', 'profile_picture']
+        
+# ----------------- 2. Like Serializer (좋아요 생성/조회 - 매칭 로직 포함) -----------------
 class LikeSerializer(serializers.ModelSerializer):
     liker = serializers.ReadOnlyField(source='liker.id')
-    receiver = serializers.IntegerField() # 좋아요를 받는 사람의 ID를 입력받음
+    receiver = serializers.IntegerField() 
 
     class Meta:
         model = Like
         fields = ['id', 'liker', 'receiver', 'created_at']
         read_only_fields = ['created_at']
 
-    # 중복 좋아요 및 자기 자신 좋아요 방지 로직
     def validate(self, data):
         liker = self.context['request'].user
         receiver_id = data.get('receiver')
@@ -41,34 +68,31 @@ class LikeSerializer(serializers.ModelSerializer):
         if Like.objects.filter(liker=liker, receiver=receiver).exists():
             raise serializers.ValidationError("이미 좋아요를 누르셨습니다.")
 
-        # 유효성 검사 후 User 객체로 변환하여 뷰로 전달
         data['receiver'] = receiver 
+        data['liker'] = liker 
         return data
     
     def create(self, validated_data):
         # 1. 좋아요 객체 생성
-        like = Like.objects.create(**validated_data)
+        like = Like.objects.create(
+            liker=validated_data['liker'], 
+            receiver=validated_data['receiver']
+        )
         
-        liker = validated_data['liker'] # 좋아요를 누른 사람 (나)
-        receiver = validated_data['receiver'] # 좋아요를 받은 사람 (상대방)
+        liker = validated_data['liker']
+        receiver = validated_data['receiver']
         
         # 2. 매칭 확인: 상대방이 나에게 좋아요를 눌렀는지 확인
         is_match = Like.objects.filter(liker=receiver, receiver=liker).exists()
         
         if is_match:
             # 3. 매칭 성사! -> ChatRoom 생성 로직 실행
-            
-            # user1과 user2를 ID가 낮은 순서로 정렬하여 unique_together 조건을 만족시키고 중복 생성 방지
             user_a, user_b = sorted([liker, receiver], key=lambda u: u.id)
             
-            # 이미 방이 있는지 확인 (예외 방지)
             if not ChatRoom.objects.filter(user1=user_a, user2=user_b).exists():
-                
-                # 4. ChatRoom 생성
                 ChatRoom.objects.create(
                     user1=user_a,
                     user2=user_b,
-                    # 방 이름은 user ID 조합으로 생성 (예: chat_1_5)
                     name=f'chat_{user_a.id}_{user_b.id}' 
                 )
                 print(f"매칭 성사! 새로운 채팅방이 생성되었습니다: chat_{user_a.id}_{user_b.id}")
@@ -77,24 +101,63 @@ class LikeSerializer(serializers.ModelSerializer):
                 
         return like
     
-# 3. User Registration Serializer (회원가입)
-class UserRegistrationSerializer(serializers.ModelSerializer):
-    # 비밀번호 필드는 쓰기 전용으로 설정
-    password = serializers.CharField(write_only=True)
+# ----------------- 3. User Registration Serializer (회원가입 - 원자적 트랜잭션 적용) -----------------
+class UserRegistrationSerializer(serializers.Serializer):
+    # User fields
+    username = serializers.CharField(required=True)
+    email = serializers.EmailField(required=True)
+    password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
+    password2 = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'}) 
+    
+    # UserProfile fields
+    nickname = serializers.CharField(required=False, allow_blank=True)
+    age = serializers.IntegerField(required=False, allow_null=True)
+    gender = serializers.CharField(required=False, allow_blank=True)
+    bio = serializers.CharField(required=False, allow_blank=True)
+    interests = serializers.CharField(required=False, allow_blank=True)
+    profile_picture = serializers.ImageField(required=False)
 
-    class Meta:
-        model = User
-        fields = ('id', 'username', 'email', 'password')
-        read_only_fields = ('id',) 
-
-    def create(self, validated_data):
-        password = validated_data.pop('password')
+    def validate(self, data):
+        """비밀번호 확인 및 사용자 이름 중복 확인."""
+        if data['password'] != data['password2']:
+            raise serializers.ValidationError({"password": "두 비밀번호가 일치하지 않습니다."})
         
-        # Django의 기본 함수로 안전하게 사용자 생성
+        if User.objects.filter(username=data['username']).exists():
+            raise serializers.ValidationError({"username": "이미 존재하는 사용자 이름입니다."})
+            
+        return data
+
+    @transaction.atomic # 👈 트랜잭션 데코레이터 유지
+    def create(self, validated_data):
+        """User 객체와 연결된 UserProfile 객체를 생성합니다."""
+        
+        # 1. User Fields 추출
+        username = validated_data.pop('username')
+        email = validated_data.pop('email')
+        password = validated_data.pop('password')
+        validated_data.pop('password2') 
+        
+        # 2. UserProfile Fields 추출 (validated_data에 남은 모든 항목)
+        profile_data = {
+            'nickname': validated_data.pop('nickname', ''),
+            'age': validated_data.pop('age', None),
+            'gender': validated_data.pop('gender', ''),
+            'bio': validated_data.pop('bio', ''),
+            'interests': validated_data.pop('interests', ''),
+            'profile_picture': validated_data.pop('profile_picture', None)
+        }
+
+        # 3. Django User 객체 생성
         user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data.get('email', ''), 
+            username=username,
+            email=email,
             password=password
         )
         
+        # 4. UserProfile 객체 생성 (트랜잭션으로 묶여 있으므로 실패 시 3번 롤백)
+        UserProfile.objects.create(
+            user=user, 
+            **profile_data
+        )
+
         return user

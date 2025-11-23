@@ -1,23 +1,23 @@
-// frontend/src/components/MatchCard.js (Material-UI 적용)
-
 import React, { useCallback } from 'react';
 import axios from 'axios';
-// 🔑 1. Material-UI의 카드 관련 컴포넌트와 아이콘 버튼을 가져옵니다.
-import { Card, CardMedia, CardContent, CardActions, Typography, IconButton, Box, Tooltip } from '@mui/material';
-// 🔑 2. "Pass"와 "Like"에 사용할 아이콘을 가져옵니다.
+import { Card, CardMedia, CardContent, CardActions, Typography, IconButton, Tooltip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 
 function MatchCard({ profile, onLikeSuccess, onMatchSuccess }) {
     const token = localStorage.getItem('accessToken');
     
+    // 💡 1. Hooks는 항상 컴포넌트 최상단에, 조건 없이 호출되어야 합니다.
+    // profile 객체를 의존성 배열에 포함하여, profile이 업데이트될 때마다 이 함수가 재생성되도록 합니다.
     const handleLike = useCallback(async (action) => {
         if (!token) {
-            alert('로그인이 필요합니다.');
+            console.error('로그인이 필요합니다.');
             return;
         }
 
         try {
+            // profile.user 접근은 이 콜백 내부에서 이루어지므로, 
+            // 렌더링 시점에 profile이 유효하다면 안전합니다.
             const response = await axios.post(
                 'http://127.0.0.1:8000/api/users/like/', 
                 { receiver: profile.user, action },
@@ -27,10 +27,7 @@ function MatchCard({ profile, onLikeSuccess, onMatchSuccess }) {
             onLikeSuccess(profile.user); 
             
             if (response.data.is_match) {
-                alert(`${profile.nickname}님과 매칭되었습니다! 🎉 채팅을 시작하세요!`);
                 onMatchSuccess(response.data.room_name);
-            } else if (action === 'like') {
-                // '좋아요'를 보냈다는 알림은 잠시 보류 (UI/UX 개선)
             }
 
         } catch (error) {
@@ -38,34 +35,44 @@ function MatchCard({ profile, onLikeSuccess, onMatchSuccess }) {
             const errorMessage = error.response?.data?.detail || '요청 처리 중 서버 오류가 발생했습니다.';
             
             if (errorMessage.includes("이미") || errorMessage.includes("자신에게")) {
-                onLikeSuccess(profile.user); // 불필요한 카드는 화면에서 제거
+                onLikeSuccess(profile.user);
             } else {
-                alert(`처리 실패: ${errorMessage}`);
+                console.error(`처리 실패: ${errorMessage}`);
             }
         }
     }, [token, profile, onLikeSuccess, onMatchSuccess]);
+
+    // 💡 2. Hooks 호출 후에 조건부 렌더링(early return)을 수행합니다.
+    // 이렇게 하면 profile이 undefined일 때도 위쪽의 useCallback은 호출됩니다.
+    if (!profile) {
+        console.warn("MatchCard: profile 데이터가 아직 로드되지 않았거나 유효하지 않습니다.");
+        return null;
+    }
+
+    // 3. profile 객체가 유효한 경우에만 아래 로직을 실행합니다.
+    const picturePath = profile.profile_picture;
+    const finalImageUrl = picturePath 
+        ? picturePath
+        : "https://via.placeholder.com/345x300?text=No+Image";
+
+    console.log('--- MatchCard 디버깅 정보 ---');
+    console.log('1. 프로필 객체:', profile);
+    console.log('2. profile_picture 값:', picturePath);
+    console.log('3. 최종 이미지 URL:', finalImageUrl);
+    console.log('------------------------------');
     
     const getGenderEmoji = (gender) => (gender === 'M' ? '👨' : '👩');
 
     return (
-        // 🔑 3. Card 컴포넌트를 사용하여 전체 카드의 스타일(너비, 그림자 등)을 정의합니다.
         <Card sx={{ width: 345, m: 2, boxShadow: 3, borderRadius: 2 }}>
-            {/* 🔑 4. CardMedia를 사용하여 이미지를 표시합니다. 이미지가 영역에 꽉 차도록 설정합니다. */}
             <CardMedia
                 component="img"
-                height="300" // 이미지 높이를 고정합니다.
-                image={
-                    profile.profile_picture 
-                    // 🔑 Django 서버에서 제공하는 미디어 파일 URL을 올바르게 조합합니다.
-                    ? `http://127.0.0.1:8000${profile.profile_picture}` 
-                    : "https://via.placeholder.com/345x300?text=No+Image"
-                }
+                height="300" 
+                image={finalImageUrl}
                 alt={`${profile.nickname}의 프로필 이미지`}
-                // 🔑 5. 이미지가 잘리지 않고 비율을 유지하며 채워지도록 'objectFit'을 설정합니다.
                 sx={{ objectFit: 'cover' }}
             />
             
-            {/* 🔑 6. CardContent를 사용하여 프로필 텍스트 정보를 배치합니다. */}
             <CardContent>
                 <Typography gutterBottom variant="h5" component="div">
                     {profile.nickname} {getGenderEmoji(profile.gender)}
@@ -78,33 +85,22 @@ function MatchCard({ profile, onLikeSuccess, onMatchSuccess }) {
                 </Typography>
             </CardContent>
 
-            {/* 🔑 7. CardActions를 사용하여 버튼들을 하단에 배치하고 중앙 정렬합니다. */}
             <CardActions sx={{ justifyContent: 'center', paddingBottom: 2 }}>
-                {/* 🔑 8. "Pass" 버튼을 빨간색 아이콘 버튼으로 만듭니다. Tooltip으로 부가 설명을 제공합니다. */}
                 <Tooltip title="Pass">
                     <IconButton 
                         aria-label="pass" 
                         onClick={() => handleLike('pass')} 
-                        sx={{ 
-                            color: 'red', 
-                            border: '1px solid red', 
-                            margin: '0 20px' 
-                        }}
+                        sx={{ color: 'red', border: '1px solid red', margin: '0 20px' }}
                     >
                         <CloseIcon fontSize="large" />
                     </IconButton>
                 </Tooltip>
                 
-                {/* 🔑 9. "Like" 버튼을 초록색 아이콘 버튼으로 만듭니다. */}
                 <Tooltip title="Like">
                     <IconButton 
                         aria-label="like" 
                         onClick={() => handleLike('like')} 
-                        sx={{ 
-                            color: 'green', 
-                            border: '1px solid green', 
-                            margin: '0 20px' 
-                        }}
+                        sx={{ color: 'green', border: '1px solid green', margin: '0 20px' }}
                     >
                         <FavoriteIcon fontSize="large" />
                     </IconButton>
